@@ -1,0 +1,15 @@
+services:
+  port-checker:
+    build: .
+    container_name: port-checker
+    restart: unless-stopped
+    environment:
+      - TZ=UTC
+      - DOMAIN=example.com
+      - PORT=443
+      - APPRISE_URL=ntfy://ntfy-example-url
+      - CHECK_INTERVAL=60
+      - RETRY_DELAY=5
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
