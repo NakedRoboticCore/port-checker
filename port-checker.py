@@ -3,7 +3,7 @@ import apprise
 import os
 from time import localtime, sleep, strftime
 
-__version__ = "0.0.3"
+__version__ = "0.0.4"
 domain = os.getenv("DOMAIN", "")
 port = int(os.getenv("PORT", "443"))
 apprise_url = os.getenv("APPRISE_URL", "")
