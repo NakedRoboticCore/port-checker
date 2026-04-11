@@ -3,7 +3,7 @@ import apprise
 import os
 from time import localtime, sleep, strftime
 
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 domain = os.getenv("DOMAIN", "")
 port = int(os.getenv("PORT", "443"))
 apprise_url = os.getenv("APPRISE_URL", "")
@@ -103,6 +103,7 @@ def check_my_port(previous_result):
 if __name__ == "__main__":
     previous_result = None
     log(f"🚀 Initializing port-checker v{__version__} for port {port} at {domain} ({get_public_ip()})")
+    log(f"⏱️ Check interval: {check_interval}s")
     if not domain:
         log("❌ No domain specified. Please set the DOMAIN environment variable.")
         exit(1)
