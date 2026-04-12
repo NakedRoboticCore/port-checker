@@ -1,11 +1,11 @@
 services:
   port-checker:
-    build: .
+    image: ghcr.io/nakedroboticcore/port-checker:latest
     container_name: port-checker
     restart: unless-stopped
     environment:
       - TZ=UTC
-      - DOMAIN=example.com
+      - HOST_NAME=example.com
       - PORT=443
       - APPRISE_URL=ntfy://ntfy-example-url
       - CHECK_INTERVAL=60
