@@ -1,9 +1,9 @@
 import requests
 import apprise
-import os, sys
+import os, sys, dns.resolver
 from time import localtime, sleep, strftime
 
-__version__ = "0.0.5"
+__version__ = "0.0.6"
 host_name = os.getenv("HOST_NAME", "")
 port = int(os.getenv("PORT", "443"))
 apprise_url = os.getenv("APPRISE_URL", "")
@@ -20,12 +20,22 @@ def get_time():
 def log(message):
     print(f"[{get_time()}] {message}")
 
-def notify(message, title="Port Checker", notify_type=apprise.NotifyType.INFO):
+def send_notification(message, title="Port Checker", notify_type=apprise.NotifyType.INFO):
     notifier.notify(
         body=f"[{get_time()}] {message}",
         title=title,
         notify_type=notify_type
     )
+
+def resolve_host_name(host_name):
+    try:
+        my_resolver = dns.resolver.Resolver()
+        my_resolver.nameservers = ['8.8.8.8', '1.1.1.1']
+        answers = my_resolver.resolve(host_name, 'A')
+        return answers[0].to_text()
+    except Exception as e:
+        log(f"❌ Error resolving host name {host_name}: {e}")
+        return "unknown"
 
 def get_public_ip():
     """Obtains public IP address using multiple fallback services"""
@@ -55,7 +65,7 @@ def check_port(port=port, host_name=host_name):
         return response.text == "True"
     except Exception as e:
         log(f"❌ API error checking port {port} at {host_name}: {e}")
-        notify(
+        send_notification(
             message=f"❌ API error checking port {port} at {host_name}: {e}",
             title="API Error",
             notify_type=apprise.NotifyType.FAILURE
@@ -64,16 +74,29 @@ def check_port(port=port, host_name=host_name):
 
 def check_my_port(previous_result):
 
-    resolved_ip = get_public_ip() 
+    ip_address = resolve_host_name(host_name)
+    public_ip = get_public_ip()
+
+    if ip_address != public_ip:
+        if previous_result != "DNS_WAIT":
+            log(f"⚠️ DNS Mismatch: DNS says {ip_address} but your IP is {public_ip}. Your IP may have changed and DNS records have not updated yet.")
+            log("🕒 Skipping port check to avoid false alarms until DNS propagates.")
+            send_notification(
+                message=f"⚠️ DNS Mismatch: DNS says {ip_address} but your IP is {public_ip}. Your IP may have changed and DNS records have not updated yet.",
+                title="DNS Mismatch",
+                notify_type=apprise.NotifyType.WARNING
+            )
+        return "DNS_WAIT"
+    else:
+        if previous_result == "DNS_WAIT":
+            log(f"✅ DNS Resolved: DNS now resolves to {ip_address} which matches your IP {public_ip}. Resuming port checks.")
+            send_notification(
+                message=f"✅ DNS Resolved: DNS now resolves to {ip_address} which matches your IP {public_ip}. Resuming port checks.",
+                title="DNS Resolved",
+                notify_type=apprise.NotifyType.SUCCESS
+            )
 
     first_check = previous_result is None
-
-    if first_check and apprise_url:
-        notify(
-            message=f"🚀 Initializing port-checker {__version__} for port {port} at {host_name} ({resolved_ip}). Check interval: {check_interval}s",
-            title="Port Checker Initialized",
-            notify_type=apprise.NotifyType.INFO
-        )
 
     is_open = check_port(port=port, host_name=host_name)
 
@@ -83,29 +106,29 @@ def check_my_port(previous_result):
         is_open = check_port(port=port, host_name=host_name)
 
         if is_open:
-            log(f"🟢 False alarm! Port {port} is actually open at {host_name} ({resolved_ip}).")
+            log(f"🟢 False alarm! Port {port} is actually open at {host_name} ({ip_address}).")
         else:
-            log(f"🔴 Port {port} is not reachable at {host_name} ({resolved_ip})")
+            log(f"🔴 Port {port} is not reachable at {host_name} ({ip_address})")
             if apprise_url:
                 if first_check:
-                    log(f"📣 Port {port} is currently not reachable at {host_name} ({resolved_ip}). Sending initial notification...")
+                    log(f"📣 Port {port} is currently not reachable at {host_name} ({ip_address}). Sending initial notification...")
                 else:
-                    log(f"📣 Port {port} just closed at {host_name} ({resolved_ip}). Sending notification...")
-                notify(
-                    message=f"🔴 Port {port} is not reachable at {host_name} ({resolved_ip}).",
+                    log(f"📣 Port {port} just closed at {host_name} ({ip_address}). Sending notification...")
+                send_notification(
+                    message=f"🔴 Port {port} is not reachable at {host_name} ({ip_address}).",
                     title="Port Closed",
                     notify_type=apprise.NotifyType.WARNING
                 )
 
     if is_open and (previous_result is False or first_check):
-        log(f"🟢 Port {port} is open at {host_name} ({resolved_ip})")
+        log(f"🟢 Port {port} is open at {host_name} ({ip_address})")
         if apprise_url:
             if first_check:
-                log(f"📣 Port {port} is currently open at {host_name} ({resolved_ip}). Sending initial notification...")
+                log(f"📣 Port {port} is currently open at {host_name} ({ip_address}). Sending initial notification...")
             else:
-                log(f"📣 Port {port} just opened at {host_name} ({resolved_ip}). Sending notification...")
-            notify(
-                message=f"🟢 Port {port} is open at {host_name} ({resolved_ip})",
+                log(f"📣 Port {port} just opened at {host_name} ({ip_address}). Sending notification...")
+            send_notification(
+                message=f"🟢 Port {port} is open at {host_name} ({ip_address})",
                 title="Port Open",
                 notify_type=apprise.NotifyType.SUCCESS
             )
@@ -115,13 +138,20 @@ def check_my_port(previous_result):
 if __name__ == "__main__":
     if len(sys.argv) == 1:
         previous_result = None
-        log(f"🚀 Initializing port-checker v{__version__} for port {port} at {host_name} ({get_public_ip()})")
-        log(f"⏱️ Check interval: {check_interval}s")
         if not host_name:
             log("❌ No host name specified. Please set the HOST_NAME environment variable.")
             sys.exit(1)
+        ip_address = resolve_host_name(host_name)
+        log(f"🚀 Initializing port-checker v{__version__} for port {port} at {host_name} ({ip_address})")
+        log(f"⏱️ Check interval: {check_interval}s")
         if not apprise_url:
             log("⚠️ No APPRISE_URL specified. Notifications will be disabled.")
+        else:
+            send_notification(
+                message=f"🚀 Initializing port-checker v{__version__} for port {port} at {host_name} ({ip_address}). Check interval: {check_interval}s",
+                title="Port Checker Initialized",
+                notify_type=apprise.NotifyType.INFO
+            )            
         
         while True:
             previous_result = check_my_port(previous_result)
@@ -130,14 +160,15 @@ if __name__ == "__main__":
     if len(sys.argv) == 3:
         host_name = sys.argv[1]
         if len(host_name.split(".")) < 2:
-            print("❌ Invalid host name. Please provide a valid domain or IP address.")
+            print("❌ Invalid host name. Please provide a valid host name.")
             sys.exit(1)
+        ip_address = resolve_host_name(host_name)
         try:
             port = int(sys.argv[2])
         except ValueError:
             print("❌ Invalid port number. Please provide a valid integer for the port.")
             sys.exit(1)
-        print(f"🚀 Checking port {port} at {host_name} ({get_public_ip()})")
+        print(f"🚀 Checking port {port} at {host_name} ({ip_address})")
         is_open = check_port(port=port, host_name=host_name)
         if is_open:
             print(f"🟢 Port {port} is open at {host_name}")
