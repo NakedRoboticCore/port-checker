@@ -1,0 +1,7 @@
+{
+    "HOST_NAME": "example.com",
+    "PORT": 80,
+    "CHECK_INTERVAL": 60,
+    "RETRY_DELAY": 5,
+    "APPRISE_URL": "ntfy://ntfy-example-url"
+}
