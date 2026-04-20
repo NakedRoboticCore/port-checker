@@ -1,8 +1,7 @@
-from logging import config
 import os, sys, dns.resolver, requests, apprise, json
 from time import localtime, sleep, strftime
 
-__version__ = "0.0.7"
+__version__ = "0.0.8"
 
 class PortChecker:
     def __init__(self):
@@ -74,26 +73,28 @@ class PortChecker:
                 log(f"🔴 Port {self.port} is not reachable at {self.host_name} ({self.ip_address})")
                 if self.apprise_url:
                     if first_check:
-                        log(f"📣 Port {self.port} is currently not reachable at {self.host_name} ({self.ip_address}). Sending initial notification...")
+                        log(f"📣 Port {self.port} is currently not reachable at {self.host_name} ({self.ip_address})")
                     else:
-                        log(f"📣 Port {self.port} just closed at {self.host_name} ({self.ip_address}). Sending notification...")
+                        log(f"📣 Port {self.port} just closed at {self.host_name} ({self.ip_address})")
                     self.send_notification(
                         message=f"🔴 Port {self.port} is not reachable at {self.host_name} ({self.ip_address}).",
                         title="Port Closed",
-                        notify_type=apprise.NotifyType.WARNING
+                        notify_type=apprise.NotifyType.WARNING,
+                        report_success=True
                     )
 
         if is_open and (self.status is False or first_check):
             log(f"🟢 Port {self.port} is open at {self.host_name} ({self.ip_address})")
             if self.apprise_url:
                 if first_check:
-                    log(f"📣 Port {self.port} is currently open at {self.host_name} ({self.ip_address}). Sending initial notification...")
+                    log(f"📣 Port {self.port} is currently open at {self.host_name} ({self.ip_address})")
                 else:
-                    log(f"📣 Port {self.port} just opened at {self.host_name} ({self.ip_address}). Sending notification...")
+                    log(f"📣 Port {self.port} just opened at {self.host_name} ({self.ip_address})")
                 self.send_notification(
                     message=f"🟢 Port {self.port} is open at {self.host_name} ({self.ip_address})",
                     title="Port Open",
-                    notify_type=apprise.NotifyType.SUCCESS
+                    notify_type=apprise.NotifyType.SUCCESS,
+                    report_success=True
                 )
 
         self.status = is_open
@@ -101,15 +102,21 @@ class PortChecker:
     def setup_notifier(self):
         if self.apprise_url:
             self.notifier = apprise.Apprise()
-            self.notifier.add(self.apprise_url)
+            if not self.notifier.add(self.apprise_url):
+                log(f"❌ Failed to add {self.apprise_url} to notifier service, notifications will be disabled")
 
-    def send_notification(self, message, title="Port Checker", notify_type=apprise.NotifyType.INFO):
+    def send_notification(self, message, title="Port Checker", notify_type=apprise.NotifyType.INFO, report_success=False):
         if self.notifier:
-            self.notifier.notify(
+            status = self.notifier.notify(
                 body=f"[{get_time()}] {message}",
                 title=title,
                 notify_type=notify_type
             )
+            if not status:
+                log("❌ Failed to send notification")
+            elif report_success:
+                log("✅ Notification sent successfully")
+
 
 def get_time():
     return strftime("%Y-%m-%d %H:%M:%S", localtime())
@@ -136,13 +143,17 @@ def get_public_ip():
         "https://icanhazip.com"
     ]
     
+    failed = False
     for url in services:
         try:
             response = requests.get(url, timeout=5)
             if response.status_code == 200:
+                if failed:
+                    log(f"✅ Successfully obtained public IP from {url} after previous failures.")
                 return response.text.strip()
         except Exception:
             log(f"⚠️ Failed to get public IP from {url}, trying next service...")
+            failed = True
             continue
             
     log("❌ All public IP services failed.")
