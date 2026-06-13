@@ -1,7 +1,7 @@
 import os, sys, dns.resolver, requests, apprise, json
 from time import localtime, sleep, strftime
 
-__version__ = "0.0.8"
+__version__ = "0.0.9"
 
 class PortChecker:
     def __init__(self):
@@ -12,6 +12,7 @@ class PortChecker:
         self.apprise_url = ""
         self.notifier = None
         self.status = None
+        self.api_status = True
         self.ip_address = None
         self.public_ip = None
 
@@ -60,12 +61,24 @@ class PortChecker:
 
         first_check = self.status is None
 
-        is_open = check_port_once(host_name=self.host_name, port=self.port, notifier=self.notifier)
+        is_open = check_port_once(host_name=self.host_name, port=self.port)
+
+        if is_open is None:
+            if self.api_status:
+                self.notifier.notify(
+                    body=f"[{get_time()}] ⚠️ API Timeout/Error checking port {self.port} at {self.host_name}: API may be down or unreachable.",
+                    title="API Timeout/Error",
+                    notify_type=apprise.NotifyType.WARNING
+                )
+                self.api_status = False
+            return
+        
+        self.api_status = True
 
         if not is_open and (self.status is True or first_check):
             log(f"🔍 Port {self.port} reported closed. Retrying in {self.retry_delay}s...")
             sleep(self.retry_delay)
-            is_open = check_port_once(host_name=self.host_name, port=self.port, notifier=self.notifier)
+            is_open = check_port_once(host_name=self.host_name, port=self.port)
 
             if is_open:
                 log(f"🟢 False alarm! Port {self.port} is actually open at {self.host_name} ({self.ip_address}).")
@@ -159,20 +172,15 @@ def get_public_ip():
     log("❌ All public IP services failed.")
     return "Unknown"
     
-def check_port_once(host_name, port, notifier=None):
-    url = f"https://portchecker.io/api/{host_name}/{port}"
+def check_port_once(host_name, port):
+    url = f"https://ifconfig.co/port/{port}?ip={host_name}"
     try:
         response = requests.get(url, timeout=10)
-        return response.text == "True"
+        response_json = response.json()
+        return response_json.get("reachable", False)
     except Exception as e:
-        log(f"❌ API error checking port {port} at {host_name}: {e}")
-        if notifier:
-            notifier.notify(
-                body=f"❌ API error checking port {port} at {host_name}: {e}",
-                title="API Error",
-                notify_type=apprise.NotifyType.FAILURE
-            )
-        return False
+        log(f"⚠️ API Timeout/Error checking port {port} at {host_name}: {e}")
+    return None
 
 if __name__ == "__main__":
 
@@ -188,7 +196,7 @@ if __name__ == "__main__":
             print("❌ Invalid port number. Please provide a valid integer for the port.")
             sys.exit(1)
         print(f"🚀 Checking port {port} at {host_name} ({ip_address})")
-        is_open = check_port_once(port=port, host_name=host_name)
+        is_open = check_port_once(host_name=host_name, port=port)
         if is_open:
             print(f"🟢 Port {port} is open at {host_name}")
             sys.exit(0)

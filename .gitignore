@@ -1,3 +1,5 @@
 venv/
 docker-compose.yml
 config.json
+.DS_Store
+.gitignore
